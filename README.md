@@ -7,7 +7,8 @@ In the settings you can specify a folder in your vault to store your templates.
 ## variables replaced
 The following variables are replaced in the prompt:
 - `{{current|CURRENT}}` - the current note or the highlighted text
-- TODO: Frontmatter variables - any frontmatter variables in the current note will be replaced with their values
+- Frontmatter variables - any frontmatter variables in the current note will be replaced with their values
+- Dataview variables - inline variables using the dataview syntax may be used in the prompt
 
 ## TODO: Smart Context
 - use AI to improve the context of the prompt

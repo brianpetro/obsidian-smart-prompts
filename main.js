@@ -93,36 +93,27 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
         // replace {{CURRENT}} (case-insensitive) with selection.trim()
         smart_prompt = smart_prompt.replace(/{{CURRENT}}/gi, selection.trim());
       }
-      // if still contains a double bracket
-      if(smart_prompt.indexOf("{{") > -1) {
-        // get active file
-        let active_file = this.app.workspace.getActiveFile();
-        // get frontmatter
-        let frontmatter = await this.app.metadataCache.getFileCache(active_file);
-        // if frontmatter exists
-        if(frontmatter) {
-          // for each key in frontmatter
-          for (const [key, value] of Object.entries(frontmatter.frontmatter)) {
-            // if {{key}} is in the template (case-insensitive)
-            if(smart_prompt.toLowerCase().indexOf("{{" + key.toLowerCase() + "}}") > -1) {
-              // replace {{key}} (case-insensitive) with value
-              smart_prompt = smart_prompt.replace(new RegExp("{{" + key + "}}", "gi"), value);
-            }
-          }
-        }
-      } 
-
-
-      // if {{CURRENT_TITLE}} is in the template
-      // TODO: add support for {{CURRENT_TITLE}}
-
-      // if any other double brackets are in the template use YAML frontmatter
-      // TODO: add support for other double brackets
-
+    }
+    // if still contains a double bracket get all context variables and replace them using this.getPropertyValue()
+    if(smart_prompt.indexOf("{{") > -1) {
+      let active_file = this.app.workspace.getActiveFile();
+      await this.awaitDataViewPage(active_file.path);
+      // get all variables from inside the double brackets
+      let contexts = smart_prompt.match(/{{(.*?)}}/g);
+      // for each variable
+      for (let i = 0; i < contexts.length; i++) {
+        // get the variable name
+        let context = contexts[i].replace(/{{|}}/g, "");
+        // get the value of the variable
+        let value = this.getPropertyValue(context, active_file);
+        // replace the variable with the value
+        smart_prompt = smart_prompt.replace(new RegExp("{{" + context + "}}", "g"), value);
+      }
     }
     // copy to the clipboard
     navigator.clipboard.writeText(smart_prompt);
-  }
+   }
+  
   start(editor) {
     this.editor = editor;
     // get frontmatter
@@ -133,8 +124,35 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
     this.open();
   }
 
-};
+  async awaitDataViewPage(filePath) {
+    const dataview = this.app.plugins.getPlugin('dataview');
+    while (dataview && (!dataview.api || !dataview.api.page(filePath))) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+  
+  getPropertyValue(property_name, file) {
+    const dataview = this.app.plugins.getPlugin('dataview');
+    if (!file) {
+        return null;
+    }
+    const dataViewPropertyValue = dataview.api.page(file.path)[property_name];
 
+    if (dataViewPropertyValue) {
+        if (dataViewPropertyValue.path) {
+            return this.app.metadataCache.getFirstLinkpathDest(dataViewPropertyValue.path, file.path).path;
+        }
+        const externalLinkMatch = /^\[.*\]\((.*)\)$/gm.exec(dataViewPropertyValue);
+        if (externalLinkMatch) {
+            return externalLinkMatch[1];
+        }
+        return dataViewPropertyValue;
+    } else {
+        const cache = this.app.metadataCache.getFileCache(file);
+        return cache.frontmatter[property_name];
+    }
+  }
+}
 
 class SmartPromptsSettingsTab extends Obsidian.PluginSettingTab {
   constructor(app, plugin) {
