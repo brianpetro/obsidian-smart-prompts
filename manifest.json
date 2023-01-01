@@ -1,0 +1,11 @@
+
+{
+  "id": "smart-prompts",
+  "name": "Smart Prompts",
+  "author": "Brian Petro",
+  "description": "TODO",
+  "version": "0.0.0",
+  "minAppVersion": "1.1.0",
+  "authorUrl": "https://wfhbrian.com",
+  "isDesktopOnly": false
+}
