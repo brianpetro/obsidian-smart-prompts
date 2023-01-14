@@ -44,6 +44,27 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
     
     this.addSettingTab(new SmartPromptsSettingsTab(this.app, this));
 
+    /**
+     * BEGIN ChatGPT experiment
+     */
+
+    // register command to open the view
+    this.addCommand({
+      id: "open-smart-chatgpt",
+      name: "Open Smart ChatGPT",
+      callback: () => {
+        this.app.workspace.getRightLeaf(false).setViewState({
+          type: SMART_CHATGPT_VIEW_TYPE,
+          active: true,
+        });
+        this.app.workspace.revealLeaf(
+          this.app.workspace.getLeavesOfType(SMART_CHATGPT_VIEW_TYPE)[0]
+        );
+      }
+    });
+    // register view
+    this.registerView(SMART_CHATGPT_VIEW_TYPE, (leaf) => (new SmartChatGPTView(leaf, this)));
+
   }
 }
 
@@ -112,7 +133,18 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
     }
     // copy to the clipboard
     navigator.clipboard.writeText(smart_prompt);
-   }
+
+    /**
+     * Smart ChatGPT
+     * ---
+     * If SmartChatGPTView is open, send the prompt to the view
+     */
+    const smartChatGPTView = this.app.workspace.getLeavesOfType(SMART_CHATGPT_VIEW_TYPE)[0];
+    if (smartChatGPTView) {
+      console.log("sending prompt to SmartChatGPTView");
+      await smartChatGPTView.view.paste_prompt();
+    }
+  }
   
   start(editor) {
     this.editor = editor;
@@ -130,7 +162,6 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   }
-  
   getPropertyValue(property_name, file) {
     const dataview = this.app.plugins.getPlugin('dataview');
     if (!file) {
@@ -178,4 +209,67 @@ class SmartPromptsSettingsTab extends Obsidian.PluginSettingTab {
   }
 }
 
+
 module.exports = SmartPromptsPlugin;
+
+
+const SMART_CHATGPT_VIEW_TYPE = "smart_chatgpt";
+class SmartChatGPTView extends Obsidian.ItemView {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+  getViewType() {
+    return SMART_CHATGPT_VIEW_TYPE;
+  }
+  getDisplayText() {
+    return "Smart ChatGPT";
+  }
+  getIcon() {
+    return "bot";
+  }
+  onload() {
+    console.log("loading view");
+    this.containerEl.empty();
+    this.containerEl.appendChild(this.create());
+  }
+
+  create() {
+    this.journal_prompt = "You are role-playing as Socrates, please help me with an Issue in my life. Please ask me questions to try to understand what my issue is and help me unpack it. You can start the conversation however you feel is best. Please end your responses with /e.";
+    this.frame = document.createElement("webview");
+    // this.frame = document.createElement("iframe");
+    this.frame.setAttribute("allowpopups", "");
+    this.frame.addEventListener("dom-ready", () => {
+      this.frame.addEventListener("found-in-page", async (e) => {
+        // wait for one second
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await this.frame.executeJavaScript(`document.querySelector("textarea").focus()`);
+        await this.frame.executeJavaScript(`document.querySelector("textarea").value = "${this.journal_prompt}"`);
+        // enter
+        await this.frame.executeJavaScript(`document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}))`);
+
+      });
+      this.frame.findInPage("textarea");
+    });
+    // add 100% height and width to the webview
+    this.frame.style.width = "100%";
+    this.frame.style.height = "100%";
+    this.frame.setAttribute("src", "https://chat.openai.com/chat");
+    return this.frame;
+  }
+
+  // function to execute javascript in the webview
+  async paste_prompt() {
+    // paste text from clipboard into textarea
+    await this.frame.executeJavaScript(`document.querySelector("textarea").value = ""`);
+    await this.frame.executeJavaScript(`document.querySelector("textarea").focus()`);
+    await this.frame.executeJavaScript(`document.execCommand("paste")`);
+
+    /**
+     * TO ENTER/SUBMIT
+     */
+    // await this.frame.executeJavaScript(`document.querySelector("textarea").focus()`);
+    // await this.frame.executeJavaScript(`document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}))`);
+  }
+
+}
