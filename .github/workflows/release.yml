@@ -6,7 +6,7 @@ on:
       - "*"
 
 env:
-  PLUGIN_NAME: smart-prompts
+  PLUGIN_NAME: smart-prompts # Change this to match the id of your plugin.
 
 jobs:
   build:
