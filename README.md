@@ -14,5 +14,5 @@ In the settings you can specify a folder in your vault to store your templates. 
 The following variables are replaced in the prompt:
 - `{{CURRENT}}` - If text from the current note is highlighted when the generating a prompt, the highlighted text will be used. If no text is highlighted, the entire note will be used.
 - Frontmatter variables - Frontmatter variables can be used in the template using the bracket `{{NAME}}` syntax.
-- Dataview variables - Inline variables can be used in the template if the dataview plugin is active.
+- Dataview variables - Inline variables can be used in the template if the [Dataview plugin](https://github.com/blacksmithgu/obsidian-dataview) is active.
 - `{{Comining Soon}}`: Dynamic context using [Smart Connections](https://github.com/brianpetro/obsidian-smart-connections/) plugin to source relevant context from outside of current note using AI.
