@@ -75,8 +75,6 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
 
     // initialize when the layout is ready
     this.app.workspace.onLayoutReady(this.initialize.bind(this));
-    // register view
-    this.registerView(SMART_CHATGPT_VIEW_TYPE, (leaf) => (new SmartChatGPTView(leaf, this)));
 
   }
   async initialize() {
@@ -87,6 +85,8 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       await this.initiate_template_folder();
       new Obsidian.Notice("Smart Prompts folder created.");
     }
+    // register view
+    this.registerView(SMART_CHATGPT_VIEW_TYPE, (leaf) => (new SmartChatGPTView(leaf, this)));
     new Obsidian.Notice("Smart Prompts initialized.");
   }
   async initiate_template_folder() {
