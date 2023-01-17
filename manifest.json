@@ -4,7 +4,7 @@
   "name": "Smart Prompts",
   "author": "Brian Petro",
   "description": "Prompt templating tools designed for interacting with language interfaces like OpenAI's ChatGPT.",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "minAppVersion": "1.1.0",
   "authorUrl": "https://wfhbrian.com",
   "isDesktopOnly": false

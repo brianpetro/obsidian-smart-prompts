@@ -45,9 +45,9 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       name: "Open Smart Prompts Selector (Clipboard)",
       icon: "bot",
       hotkeys: [{ modifiers: ["Alt"], key: "g" }],
-      callback: () => {
+      callback: async () => {
         // get the selection from the clipboard
-        this.selection = navigator.clipboard.readText();
+        this.selection = await navigator.clipboard.readText();
         this.modal.open();
       }
     });
