@@ -5,6 +5,7 @@ var DEFAULT_SETTINGS = {
   auto_submit: true,
   initial_prompt: "You are role-playing as Socrates, please help me with an Issue in my life. Please ask me questions to try to understand what my issue is and help me unpack it. You can start the conversation however you feel is best. Please end your responses with /e.",
   initial_prompt_enabled: true,
+  view_url: "",
 };
 class SmartPromptsPlugin extends Obsidian.Plugin {
   // constructor
@@ -15,18 +16,6 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    // load file exclusions if not blank
-    // if(this.settings.file_exclusions && this.settings.file_exclusions.length > 0) {
-    //   this.file_exclusions = this.settings.file_exclusions.split(",");
-    // }
-    // // load header exclusions if not blank
-    // if(this.settings.header_exclusions && this.settings.header_exclusions.length > 0) {
-    //   this.header_exclusions = this.settings.header_exclusions.split(",");
-    // }
-    // // load path_only if not blank
-    // if(this.settings.path_only && this.settings.path_only.length > 0) {
-    //   this.path_only = this.settings.path_only.split(",");
-    // }
   }
   async save_settings() {
     await this.saveData(this.settings);
@@ -337,6 +326,14 @@ class SmartPromptsSettingsTab extends Obsidian.PluginSettingTab {
       });
     });
 
+    // web view URL view_url
+    new Obsidian.Setting(this.containerEl).setName("Web View URL").setDesc("The URL to load in the Smart Web View").addText((cb) => {
+      cb.setPlaceholder("https://www.google.com").setValue(this.plugin.settings.view_url).onChange(async (new_url) => {
+        this.plugin.settings.view_url = new_url;
+        await this.plugin.save_settings();
+      });
+    });
+
   }
 }
 
@@ -427,12 +424,15 @@ class SmartWebView extends Obsidian.ItemView {
   onload() {
     console.log("loading view");
     this.containerEl.empty();
+    // if the view_url is not set, prompt the user to set it in the settings
+    if (!this.plugin.settings.view_url) {
+      new Obsidian.Notice("Please set the view url in the settings");
+      return;
+    }
     this.containerEl.appendChild(this.create());
   }
 
   create() {
-    const THIS_URL = "https://www.linkedin.com/search/results/content/?authorJobTitle=%22owner%20OR%20founder%20OR%20entrepreneur%20OR%20ceo%20OR%20cto%22&datePosted=%22past-24h%22&keywords=chatgpt&origin=FACETED_SEARCH&sid=qsT&sortBy=%22date_posted%22";
-    this.view_url = THIS_URL;
     this.frame = document.createElement("webview");
 
     // everytime the webview loads, run javascript in the webview from preload.js
@@ -470,16 +470,16 @@ class SmartWebView extends Obsidian.ItemView {
     // add 100% height and width to the webview
     this.frame.style.width = "100%";
     this.frame.style.height = "100%";
-    this.frame.setAttribute("src", THIS_URL);
+    this.frame.setAttribute("src", this.plugin.settings.view_url);
     return this.frame;
 
   }
   async handle_nav() {
     const current_url = this.frame.getURL();
-    if (this.target_url && current_url.startsWith(this.view_url)) {
+    if (this.target_url && current_url.startsWith(this.plugin.settings.view_url)) {
       require("electron").shell.openExternal(this.target_url);
       this.target_url = null;
-    } else if (!current_url.startsWith(this.view_url)) {
+    } else if (!current_url.startsWith(this.plugin.settings.view_url)) {
       this.target_url = current_url;
       this.frame.stop();
       this.frame.goBack();
