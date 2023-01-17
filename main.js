@@ -5,7 +5,6 @@ var DEFAULT_SETTINGS = {
   auto_submit: true,
   initial_prompt: "You are role-playing as Socrates, please help me with an Issue in my life. Please ask me questions to try to understand what my issue is and help me unpack it. You can start the conversation however you feel is best. Please end your responses with /e.",
   initial_prompt_enabled: true,
-  view_url: "",
 };
 class SmartPromptsPlugin extends Obsidian.Plugin {
   // constructor
@@ -40,6 +39,19 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
         this.modal.open();
       }
     });
+    // register smart prompts selector that uses the current selection from clipboard
+    this.addCommand({
+      id: "sp-find-prompts-clipboard",
+      name: "Open Smart Prompts Selector (Clipboard)",
+      icon: "bot",
+      hotkeys: [{ modifiers: ["Alt"], key: "g" }],
+      callback: () => {
+        // get the selection from the clipboard
+        this.selection = navigator.clipboard.readText();
+        this.modal.open();
+      }
+    });
+
     
     this.addSettingTab(new SmartPromptsSettingsTab(this.app, this));
     // register command to open the ChatGPT view
@@ -68,31 +80,6 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       }
     });
 
-    // register command to open smart webview
-    this.addCommand({
-      id: "sp-open-webview",
-      name: "Open Smart Prompts Webview",
-      callback: () => {
-        // open in a center pane
-        this.app.workspace.getLeaf(false).setViewState({
-          type: SMART_WEB_VIEW_TYPE,
-          active: true,
-        });
-        this.app.workspace.revealLeaf(
-          this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]
-        );
-
-
-        // this.app.workspace.getRightLeaf(false).setViewState({
-        //   type: SMART_WEB_VIEW_TYPE,
-        //   active: true,
-        // });
-        // this.app.workspace.revealLeaf(
-        //   this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]
-        // );
-      }
-    });
-
     // initialize when the layout is ready
     this.app.workspace.onLayoutReady(this.initialize.bind(this));
 
@@ -107,7 +94,6 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
     }
     // register views
     this.registerView(SMART_CHATGPT_VIEW_TYPE, (leaf) => (new SmartChatGPTView(leaf, this)));
-    this.registerView(SMART_WEB_VIEW_TYPE, (leaf) => (new SmartWebView(leaf, this)));
     new Obsidian.Notice("Smart Prompts initialized.");
   }
   async initiate_template_folder() {
@@ -227,8 +213,6 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
       // close the temp view
       temp_view.close();
     }
-    // switch back to the SmartWebView 
-    this.app.workspace.setActiveLeaf(this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]);
     
     // clear the selection
     this.plugin.selection = null;
@@ -326,14 +310,6 @@ class SmartPromptsSettingsTab extends Obsidian.PluginSettingTab {
       });
     });
 
-    // web view URL view_url
-    new Obsidian.Setting(this.containerEl).setName("Web View URL").setDesc("The URL to load in the Smart Web View").addText((cb) => {
-      cb.setPlaceholder("https://www.google.com").setValue(this.plugin.settings.view_url).onChange(async (new_url) => {
-        this.plugin.settings.view_url = new_url;
-        await this.plugin.save_settings();
-      });
-    });
-
   }
 }
 
@@ -402,146 +378,4 @@ class SmartChatGPTView extends Obsidian.ItemView {
       await this.frame.executeJavaScript(`document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}))`);
     }
   }
-}
-
-
-
-const SMART_WEB_VIEW_TYPE = "smart_web";
-class SmartWebView extends Obsidian.ItemView {
-  constructor(app, plugin) {
-    super(app);
-    this.plugin = plugin;
-  }
-  getViewType() {
-    return SMART_WEB_VIEW_TYPE;
-  }
-  getDisplayText() {
-    return "Smart Web";
-  }
-  getIcon() {
-    return "signal";
-  }
-  onload() {
-    console.log("loading view");
-    this.containerEl.empty();
-    // if the view_url is not set, prompt the user to set it in the settings
-    if (!this.plugin.settings.view_url) {
-      new Obsidian.Notice("Please set the view url in the settings");
-      return;
-    }
-    this.containerEl.appendChild(this.create());
-  }
-
-  create() {
-    this.frame = document.createElement("webview");
-
-    // everytime the webview loads, run javascript in the webview from preload.js
-    this.frame.addEventListener("dom-ready", async () => {
-      await this.load_preload_js();
-    });
-
-    this.frame.addEventListener('console-message', async (e) => {
-      console.log('Guest page logged a message:', e.message)
-      // if message begins with "highlighted-text:" then log the text
-      if(e.message.startsWith("highlighted text:")){
-        let highlighted_text = e.message.replace("highlighted text: ", "");
-        // console.log(highlighted_text);
-        this.plugin.selection = highlighted_text;
-        await this.plugin.modal.open();
-      }
-
-      // if message begins with "open external:" then open the url in default browser
-      if(e.message.startsWith("open external:")){
-        let url = e.message.replace("open external: ", "");
-        console.log(url);
-        require("electron").shell.openExternal(url);
-      }
-
-    });
-    
-    this.target_url = null;
-    this.frame.addEventListener("did-navigate-in-page", (e) => {
-      console.log("did-navigate-in-page");
-      e.preventDefault();
-      this.handle_nav();
-    });
-
-
-    // add 100% height and width to the webview
-    this.frame.style.width = "100%";
-    this.frame.style.height = "100%";
-    this.frame.setAttribute("src", this.plugin.settings.view_url);
-    return this.frame;
-
-  }
-  async handle_nav() {
-    const current_url = this.frame.getURL();
-    if (this.target_url && current_url.startsWith(this.plugin.settings.view_url)) {
-      require("electron").shell.openExternal(this.target_url);
-      this.target_url = null;
-    } else if (!current_url.startsWith(this.plugin.settings.view_url)) {
-      this.target_url = current_url;
-      this.frame.stop();
-      this.frame.goBack();
-    }
-    return false;
-  }
-
-  async load_preload_js() {
-    await this.frame.executeJavaScript(`
-      document.addEventListener('keydown', (e) => {
-        if (e.altKey && e.key === 'j') {
-          console.log('alt+j pressed');
-          console.log("highlighted text: " + window.getSelection().toString());
-        }
-      });
-      function listen_to_links() {
-        const links = document.getElementsByTagName('a');
-        // loop through links
-        for (let i = 0; i < links.length; i++) {
-          // add event listener
-          links[i].addEventListener('click', (e) => {
-            clickCatch(e);
-          });
-        }
-      }
-      listen_to_links();
-      function clickCatch(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof href === 'undefined') {
-          href = e.target.parentElement.href;
-        }
-        // if href is undefined
-        if (typeof href === 'undefined') {
-          href = e.target.parentElement.parentElement.href;
-        }
-        // if href is undefined
-        if (typeof href === 'undefined') {
-          href = e.target.parentElement.parentElement.parentElement.href;
-        }
-        // if href is undefined
-        if (typeof href === 'undefined') {
-          href = e.target.parentElement.parentElement.parentElement.parentElement.href;
-        }
-        // if href is undefined
-        if (typeof href === 'undefined') {
-          href = e.target.parentElement.parentElement.parentElement.parentElement.parentElement.href;
-        }
-        // if href is undefined
-        if (typeof href === 'undefined') {
-          // check if href is in data-href
-          href = e.target.dataset.href;
-          // console.log('data-href: ' + href);
-        }
-        if(typeof href === 'undefined') {
-          // continue with default action
-          return;
-        }
-        console.log('open external: ' + href);
-      }
-    `);
-    console.log("preload.js executed");
-  }
-
 }
