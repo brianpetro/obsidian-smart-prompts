@@ -10,6 +10,7 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
   // constructor
   constructor() {
     super(...arguments);
+    this.selection = null;
   }
 
   async loadSettings() {
@@ -41,7 +42,13 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       icon: "bot",
       hotkeys: [{ modifiers: ["Alt"], key: "j" }],
       editorCallback: (editor) => {
-        this.modal.start(editor);
+        // get the selection from the active context
+        this.selection = editor.getSelection();
+        // if no selection, use the whole note
+        if (!this.selection){
+          this.selection = editor.getValue();
+        }
+        this.modal.open();
       }
     });
     
@@ -72,6 +79,30 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       }
     });
 
+    // register command to open smart webview
+    this.addCommand({
+      id: "sp-open-webview",
+      name: "Open Smart Prompts Webview",
+      callback: () => {
+        // open in a center pane
+        this.app.workspace.getLeaf(false).setViewState({
+          type: SMART_WEB_VIEW_TYPE,
+          active: true,
+        });
+        this.app.workspace.revealLeaf(
+          this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]
+        );
+
+
+        // this.app.workspace.getRightLeaf(false).setViewState({
+        //   type: SMART_WEB_VIEW_TYPE,
+        //   active: true,
+        // });
+        // this.app.workspace.revealLeaf(
+        //   this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]
+        // );
+      }
+    });
 
     // initialize when the layout is ready
     this.app.workspace.onLayoutReady(this.initialize.bind(this));
@@ -85,8 +116,9 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       await this.initiate_template_folder();
       new Obsidian.Notice("Smart Prompts folder created.");
     }
-    // register view
+    // register views
     this.registerView(SMART_CHATGPT_VIEW_TYPE, (leaf) => (new SmartChatGPTView(leaf, this)));
+    this.registerView(SMART_WEB_VIEW_TYPE, (leaf) => (new SmartWebView(leaf, this)));
     new Obsidian.Notice("Smart Prompts initialized.");
   }
   async initiate_template_folder() {
@@ -155,14 +187,8 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
     if(smart_prompt.indexOf("{{") > -1) {
       // if {{CURRENT}} is in the template (case-insensitive)
       if(smart_prompt.toLowerCase().indexOf("{{current}}") > -1) {
-        // get the current note contents
-        let selection = this.editor.getSelection();
-        // if no selection, use the whole note
-        if (!selection){
-          selection = this.editor.getValue();
-        }
         // replace {{CURRENT}} (case-insensitive) with selection.trim()
-        smart_prompt = smart_prompt.replace(/{{CURRENT}}/gi, selection.trim());
+        smart_prompt = smart_prompt.replace(/{{CURRENT}}/gi, this.plugin.selection);
       }
       // if {{TITLE}} or {{FILE_NAME}} is in the template (case-insensitive)
       if(smart_prompt.toLowerCase().indexOf("{{title}}") > -1 || smart_prompt.toLowerCase().indexOf("{{file_name}}") > -1) {
@@ -190,8 +216,33 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
         smart_prompt = smart_prompt.replace(new RegExp("{{" + context + "}}", "g"), value);
       }
     }
+    // if still contains a double bracket, remove them and the text between them
+    if(smart_prompt.indexOf("{{") > -1) {
+      smart_prompt = smart_prompt.replace(/{{(.*?)}}/g, "");
+    }
+
+    // open a markdown view if none is open to 'focus the editor'
+    let temp_view = null;
+    if (!this.app.workspace.getActiveViewOfType(Obsidian.MarkdownView)) {
+      this.app.workspace.getLeaf(false).setViewState({
+        type: Obsidian.MarkdownView,
+        active: true
+      });
+    }else{
+      // focus the editor
+      this.app.workspace.getActiveViewOfType(Obsidian.MarkdownView).editor.focus();
+    }
     // copy to the clipboard
-    navigator.clipboard.writeText(smart_prompt);
+    await navigator.clipboard.writeText(smart_prompt);
+    if(temp_view) {
+      // close the temp view
+      temp_view.close();
+    }
+    // switch back to the SmartWebView 
+    this.app.workspace.setActiveLeaf(this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]);
+    
+    // clear the selection
+    this.plugin.selection = null;
 
     /**
      * Smart ChatGPT
@@ -200,21 +251,13 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
      */
     const smartChatGPTView = this.app.workspace.getLeavesOfType(SMART_CHATGPT_VIEW_TYPE)[0];
     if (smartChatGPTView) {
+      // focus the smartChatGPTView
+      // this.app.workspace.setActiveLeaf(smartChatGPTView);
       console.log("sending prompt to SmartChatGPTView");
       await smartChatGPTView.view.paste_prompt();
     }
   }
   
-  start(editor) {
-    this.editor = editor;
-    // get frontmatter
-    // console.log("frontmatter", this.frontmatter);
-    // get tfile from editor
-    // console.log("tfile", this.tfile); 
-    // console.log(editor);
-    this.open();
-  }
-
   async awaitDataViewPage(filePath) {
     const dataview = this.app.plugins.getPlugin('dataview');
     while (dataview && (!dataview.api || !dataview.api.page(filePath))) {
@@ -361,6 +404,144 @@ class SmartChatGPTView extends Obsidian.ItemView {
       await this.frame.executeJavaScript(`document.querySelector("textarea").focus()`);
       await this.frame.executeJavaScript(`document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}))`);
     }
+  }
+}
+
+
+
+const SMART_WEB_VIEW_TYPE = "smart_web";
+class SmartWebView extends Obsidian.ItemView {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+  getViewType() {
+    return SMART_WEB_VIEW_TYPE;
+  }
+  getDisplayText() {
+    return "Smart Web";
+  }
+  getIcon() {
+    return "signal";
+  }
+  onload() {
+    console.log("loading view");
+    this.containerEl.empty();
+    this.containerEl.appendChild(this.create());
+  }
+
+  create() {
+    const THIS_URL = "https://www.linkedin.com/search/results/content/?authorJobTitle=%22owner%20OR%20founder%20OR%20entrepreneur%20OR%20ceo%20OR%20cto%22&datePosted=%22past-24h%22&keywords=chatgpt&origin=FACETED_SEARCH&sid=qsT&sortBy=%22date_posted%22";
+    this.view_url = THIS_URL;
+    this.frame = document.createElement("webview");
+
+    // everytime the webview loads, run javascript in the webview from preload.js
+    this.frame.addEventListener("dom-ready", async () => {
+      await this.load_preload_js();
+    });
+
+    this.frame.addEventListener('console-message', async (e) => {
+      console.log('Guest page logged a message:', e.message)
+      // if message begins with "highlighted-text:" then log the text
+      if(e.message.startsWith("highlighted text:")){
+        let highlighted_text = e.message.replace("highlighted text: ", "");
+        // console.log(highlighted_text);
+        this.plugin.selection = highlighted_text;
+        await this.plugin.modal.open();
+      }
+
+      // if message begins with "open external:" then open the url in default browser
+      if(e.message.startsWith("open external:")){
+        let url = e.message.replace("open external: ", "");
+        console.log(url);
+        require("electron").shell.openExternal(url);
+      }
+
+    });
+    
+    this.target_url = null;
+    this.frame.addEventListener("did-navigate-in-page", (e) => {
+      console.log("did-navigate-in-page");
+      e.preventDefault();
+      this.handle_nav();
+    });
+
+
+    // add 100% height and width to the webview
+    this.frame.style.width = "100%";
+    this.frame.style.height = "100%";
+    this.frame.setAttribute("src", THIS_URL);
+    return this.frame;
+
+  }
+  async handle_nav() {
+    const current_url = this.frame.getURL();
+    if (this.target_url && current_url.startsWith(this.view_url)) {
+      require("electron").shell.openExternal(this.target_url);
+      this.target_url = null;
+    } else if (!current_url.startsWith(this.view_url)) {
+      this.target_url = current_url;
+      this.frame.stop();
+      this.frame.goBack();
+    }
+    return false;
+  }
+
+  async load_preload_js() {
+    await this.frame.executeJavaScript(`
+      document.addEventListener('keydown', (e) => {
+        if (e.altKey && e.key === 'j') {
+          console.log('alt+j pressed');
+          console.log("highlighted text: " + window.getSelection().toString());
+        }
+      });
+      function listen_to_links() {
+        const links = document.getElementsByTagName('a');
+        // loop through links
+        for (let i = 0; i < links.length; i++) {
+          // add event listener
+          links[i].addEventListener('click', (e) => {
+            clickCatch(e);
+          });
+        }
+      }
+      listen_to_links();
+      function clickCatch(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof href === 'undefined') {
+          href = e.target.parentElement.href;
+        }
+        // if href is undefined
+        if (typeof href === 'undefined') {
+          href = e.target.parentElement.parentElement.href;
+        }
+        // if href is undefined
+        if (typeof href === 'undefined') {
+          href = e.target.parentElement.parentElement.parentElement.href;
+        }
+        // if href is undefined
+        if (typeof href === 'undefined') {
+          href = e.target.parentElement.parentElement.parentElement.parentElement.href;
+        }
+        // if href is undefined
+        if (typeof href === 'undefined') {
+          href = e.target.parentElement.parentElement.parentElement.parentElement.parentElement.href;
+        }
+        // if href is undefined
+        if (typeof href === 'undefined') {
+          // check if href is in data-href
+          href = e.target.dataset.href;
+          // console.log('data-href: ' + href);
+        }
+        if(typeof href === 'undefined') {
+          // continue with default action
+          return;
+        }
+        console.log('open external: ' + href);
+      }
+    `);
+    console.log("preload.js executed");
   }
 
 }
