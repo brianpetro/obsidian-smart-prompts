@@ -40,6 +40,19 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
         this.modal.open();
       }
     });
+    // register smart prompts selector that uses the current selection from clipboard
+    this.addCommand({
+      id: "sp-find-prompts-clipboard",
+      name: "Open Smart Prompts Selector (Clipboard)",
+      icon: "bot",
+      hotkeys: [{ modifiers: ["Alt"], key: "g" }],
+      callback: () => {
+        // get the selection from the clipboard
+        this.selection = navigator.clipboard.readText();
+        this.modal.open();
+      }
+    });
+
     
     this.addSettingTab(new SmartPromptsSettingsTab(this.app, this));
     // register command to open the ChatGPT view
@@ -81,17 +94,9 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
         this.app.workspace.revealLeaf(
           this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]
         );
-
-
-        // this.app.workspace.getRightLeaf(false).setViewState({
-        //   type: SMART_WEB_VIEW_TYPE,
-        //   active: true,
-        // });
-        // this.app.workspace.revealLeaf(
-        //   this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]
-        // );
       }
     });
+
 
     // initialize when the layout is ready
     this.app.workspace.onLayoutReady(this.initialize.bind(this));
@@ -226,9 +231,9 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
     if(temp_view) {
       // close the temp view
       temp_view.close();
+      // switch back to the SmartWebView 
+      this.app.workspace.setActiveLeaf(this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]);
     }
-    // switch back to the SmartWebView 
-    this.app.workspace.setActiveLeaf(this.app.workspace.getLeavesOfType(SMART_WEB_VIEW_TYPE)[0]);
     
     // clear the selection
     this.plugin.selection = null;
@@ -441,7 +446,7 @@ class SmartWebView extends Obsidian.ItemView {
     });
 
     this.frame.addEventListener('console-message', async (e) => {
-      console.log('Guest page logged a message:', e.message)
+      // console.log('Guest page logged a message:', e.message)
       // if message begins with "highlighted-text:" then log the text
       if(e.message.startsWith("highlighted text:")){
         let highlighted_text = e.message.replace("highlighted text: ", "");
@@ -453,7 +458,7 @@ class SmartWebView extends Obsidian.ItemView {
       // if message begins with "open external:" then open the url in default browser
       if(e.message.startsWith("open external:")){
         let url = e.message.replace("open external: ", "");
-        console.log(url);
+        // console.log(url);
         require("electron").shell.openExternal(url);
       }
 
@@ -543,5 +548,4 @@ class SmartWebView extends Obsidian.ItemView {
     `);
     console.log("preload.js executed");
   }
-
 }
