@@ -6,12 +6,20 @@ var DEFAULT_SETTINGS = {
   initial_prompt: "You are role-playing as Socrates, please help me with an Issue in my life. Please ask me questions to try to understand what my issue is and help me unpack it. You can start the conversation however you feel is best. Please end your responses with /e.",
   initial_prompt_enabled: true,
   file_focus_prompt: "",
+  auto_prompt_on_file_focus: false,
+  file_focus_exceptions: "",
 };
 class SmartPromptsPlugin extends Obsidian.Plugin {
   // constructor
   constructor() {
     super(...arguments);
     this.selection = null;
+    this.file_focus_prompt_template = null;
+    this.status_bar = null;
+    this.countdown_ct = 10;
+    this.countdown_interval = null;
+    this.file_focus_exceptions = [];
+
   }
 
   async loadSettings() {
@@ -25,10 +33,15 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       }
       const file = await this.app.vault.getAbstractFileByPath(path);
       if(file instanceof Obsidian.TFile) {
-        this.settings.file_focus_prompt = file;
-      }else{
-        this.settings.file_focus_prompt = "";
+        this.file_focus_prompt_template = file;
       }
+    }
+    // if file_focus_exceptions is not empty
+    if(this.settings.file_focus_exceptions.length > 0) {
+      // split the string by commas
+      // trim each element
+      // remove empty elements
+      this.file_focus_exceptions = this.settings.file_focus_exceptions.split(",").map((e) => e.trim()).filter((e) => e != "");
     }
   }
   async save_settings() {
@@ -95,31 +108,17 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       }
     });
 
-    // register file-open event to automatically run if the file is open and focused for more than 10 seconds
-    this.registerEvent(this.app.workspace.on("file-open", (file) => {
-      // if settings.file_focus_prompt is not set, do nothing
-      if(this.settings.file_focus_prompt == "") return;
-      // if the file is open and focused for more than 10 seconds, run the plugin
-      let timeout = setTimeout(async () => {
-        // if the file is open and focused for more than 10 seconds, run the plugin
-        if(this.app.workspace.getActiveFile() == file) {
-          // get the contents of file
-          this.selection = await this.app.vault.cachedRead(file);
-          await this.build_prompt(this.settings.file_focus_prompt);
-        }
-      }, 10000);
-      // clear the timeout if the file is closed or unfocused
-      this.registerEvent(this.app.workspace.on("file-close", () => {
-        clearTimeout(timeout);
-      }));
-      this.registerEvent(this.app.workspace.on("editor-change", () => {
-        clearTimeout(timeout);
-      }));
-    }));
-
+    this.addCommand({
+      id: "sp-cancel-file-focus-prompt",
+      name: "Cancel File Focus Prompt (when in progress)",
+      hotkeys: [{ modifiers: ["Ctrl"], key: "q" }],
+      callback: () => {
+        this.clear_focus();
+      }
+    });
+    
     // initialize when the layout is ready
     this.app.workspace.onLayoutReady(this.initialize.bind(this));
-
   }
   async initialize() {
     // load settings
@@ -131,8 +130,63 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
     }
     // register views
     this.registerView(SMART_CHATGPT_VIEW_TYPE, (leaf) => (new SmartChatGPTView(leaf, this)));
+    // register file-open event to automatically run if the file is open and focused for more than 10 seconds
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if(!this.settings.auto_prompt_on_file_focus) {
+        return;
+      }
+      // if settings.file_focus_prompt is not set, do nothing
+      if(!this.file_focus_prompt_template){
+        if(this.settings.file_focus_prompt != "") {
+          new Obsidian.Notice("Smart Prompts: File Focus Prompt Template not found.");
+        }
+        return;
+      }
+      // if the file matches pattern in the file_focus_exceptions list
+      for(let i = 0; i < this.file_focus_exceptions.length; i++) {
+        if(file.path.indexOf(this.file_focus_exceptions[i]) > -1) {
+          if(this.countdown_interval) {
+            this.clear_focus();
+          }
+          console.log("Smart Prompts: File Focus Prompt excluded for " + file.path);
+          return;
+        }
+      }
+
+      this.countdown_ct = 10;
+      if(!this.countdown_interval) {
+        this.countdown_interval = setInterval(this.focusCountdown.bind(this, file), 1000);
+      }
+    }));
     new Obsidian.Notice("Smart Prompts initialized.");
   }
+
+
+  
+  clear_focus() {
+    clearInterval(this.countdown_interval);
+    this.countdown_interval = null;
+    this.status_bar.empty();
+  }
+  async focusCountdown(file) {
+    // console.log(this.countdown_ct);
+    if(this.status_bar == null){
+      this.status_bar = this.addStatusBarItem();
+    }
+    // countdown in the status bar
+    this.status_bar.empty();
+    this.status_bar.createEl("span", {text: "Smart Prompts: File Focus Prompt in " + this.countdown_ct + " seconds"});
+    this.countdown_ct--;
+    // clear the status bar when the countdown is done
+    if(this.countdown_ct < 0) {
+      this.clear_focus();
+      // get the contents of file
+      this.selection = await this.app.vault.cachedRead(file);
+      await this.build_prompt(this.file_focus_prompt_template);
+    }
+  }
+
+
   async initiate_template_folder() {
     await this.app.vault.adapter.mkdir("smart prompts");
     // initiate prompt for critiquing a note
@@ -361,6 +415,21 @@ class SmartPromptsSettingsTab extends Obsidian.PluginSettingTab {
       });
     });
 
+    // auto prompt on file focus
+    new Obsidian.Setting(this.containerEl).setName("Auto Prompt on File Focus").setDesc("Automatically prompt when a file is focused for 10 seconds or more.").addToggle((cb) => {
+      cb.setValue(this.plugin.settings.auto_prompt_on_file_focus).onChange(async (value) => {
+        this.plugin.settings.auto_prompt_on_file_focus = value;
+        await this.plugin.save_settings();
+      });
+    });
+    // file focus exceptions (comma separated list of file path matchers)
+    new Obsidian.Setting(this.containerEl).setName("File Focus Exceptions").setDesc("Comma separated list of file path matchers to exclude from auto prompting on file focus.").addTextArea((cb) => {
+      cb.setPlaceholder("file focus exceptions").setValue(this.plugin.settings.file_focus_exceptions).onChange(async (new_exceptions) => {
+        this.plugin.settings.file_focus_exceptions = new_exceptions;
+        await this.plugin.save_settings();
+      });
+    });
+    
   }
 }
 
