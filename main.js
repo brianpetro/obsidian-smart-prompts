@@ -5,6 +5,7 @@ var DEFAULT_SETTINGS = {
   auto_submit: true,
   initial_prompt: "You are role-playing as Socrates, please help me with an Issue in my life. Please ask me questions to try to understand what my issue is and help me unpack it. You can start the conversation however you feel is best. Please end your responses with /e.",
   initial_prompt_enabled: true,
+  file_focus_prompt: "",
 };
 class SmartPromptsPlugin extends Obsidian.Plugin {
   // constructor
@@ -15,6 +16,20 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // get file from name in settings.file_focus_prompt
+    if(this.settings.file_focus_prompt != "") {
+      let path = this.settings.folder+"/"+this.settings.file_focus_prompt;
+      // add .md if it is not already there
+      if(!path.endsWith(".md")) {
+        path += ".md";
+      }
+      const file = await this.app.vault.getAbstractFileByPath(path);
+      if(file instanceof Obsidian.TFile) {
+        this.settings.file_focus_prompt = file;
+      }else{
+        this.settings.file_focus_prompt = "";
+      }
+    }
   }
   async save_settings() {
     await this.saveData(this.settings);
@@ -80,6 +95,28 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       }
     });
 
+    // register file-open event to automatically run if the file is open and focused for more than 10 seconds
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      // if settings.file_focus_prompt is not set, do nothing
+      if(this.settings.file_focus_prompt == "") return;
+      // if the file is open and focused for more than 10 seconds, run the plugin
+      let timeout = setTimeout(async () => {
+        // if the file is open and focused for more than 10 seconds, run the plugin
+        if(this.app.workspace.getActiveFile() == file) {
+          // get the contents of file
+          this.selection = await this.app.vault.cachedRead(file);
+          await this.build_prompt(this.settings.file_focus_prompt);
+        }
+      }, 10000);
+      // clear the timeout if the file is closed or unfocused
+      this.registerEvent(this.app.workspace.on("file-close", () => {
+        clearTimeout(timeout);
+      }));
+      this.registerEvent(this.app.workspace.on("editor-change", () => {
+        clearTimeout(timeout);
+      }));
+    }));
+
     // initialize when the layout is ready
     this.app.workspace.onLayoutReady(this.initialize.bind(this));
 
@@ -123,38 +160,9 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
     summary_prompt += "\nBEGIN Summary:";
     await this.app.vault.adapter.write("smart prompts/summary.md", summary_prompt);
   }
-}
 
-class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
-  constructor(app, plugin) {
-    super(app);
-    this.app = app;
-    this.plugin = plugin;
-    this.setPlaceholder("Type name of a prompt...");
-  }
-  getItems() {
-    if (!this.plugin.settings.folder) {
-      return this.app.vault.getMarkdownFiles();
-    }
-    const folder = this.app.vault.getAbstractFileByPath(this.plugin.settings.folder);
-    let files = [];
-    Obsidian.Vault.recurseChildren(folder, (file) => {
-      if (file instanceof Obsidian.TFile) {
-        files.push(file);
-      }
-    });
-    files.sort((a, b) => {
-      return a.basename.localeCompare(b.basename);
-    });
-    if (!files) {
-      return [];
-    }
-    return files;
-  }
-  getItemText(item) {
-    return item.basename;
-  }
-  async onChooseItem(prompt_template) {
+
+  async build_prompt(prompt_template) {
     console.log("prompt chosen", prompt_template);
     // get the template contents
     let smart_prompt = await this.app.vault.cachedRead(prompt_template);
@@ -163,7 +171,7 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
       // if {{CURRENT}} is in the template (case-insensitive)
       if(smart_prompt.toLowerCase().indexOf("{{current}}") > -1) {
         // replace {{CURRENT}} (case-insensitive) with selection.trim()
-        smart_prompt = smart_prompt.replace(/{{CURRENT}}/gi, this.plugin.selection);
+        smart_prompt = smart_prompt.replace(/{{CURRENT}}/gi, this.selection);
       }
       // if {{TITLE}} or {{FILE_NAME}} is in the template (case-insensitive)
       if(smart_prompt.toLowerCase().indexOf("{{title}}") > -1 || smart_prompt.toLowerCase().indexOf("{{file_name}}") > -1) {
@@ -215,7 +223,7 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
     }
     
     // clear the selection
-    this.plugin.selection = null;
+    this.selection = null;
 
     /**
      * Smart ChatGPT
@@ -229,6 +237,41 @@ class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
       console.log("sending prompt to SmartChatGPTView");
       await smartChatGPTView.view.paste_prompt();
     }
+  }
+
+}
+
+class SmartPromptsModal extends Obsidian.FuzzySuggestModal {
+  constructor(app, plugin) {
+    super(app);
+    this.app = app;
+    this.plugin = plugin;
+    this.setPlaceholder("Type name of a prompt...");
+  }
+  getItems() {
+    if (!this.plugin.settings.folder) {
+      return this.app.vault.getMarkdownFiles();
+    }
+    const folder = this.app.vault.getAbstractFileByPath(this.plugin.settings.folder);
+    let files = [];
+    Obsidian.Vault.recurseChildren(folder, (file) => {
+      if (file instanceof Obsidian.TFile) {
+        files.push(file);
+      }
+    });
+    files.sort((a, b) => {
+      return a.basename.localeCompare(b.basename);
+    });
+    if (!files) {
+      return [];
+    }
+    return files;
+  }
+  getItemText(item) {
+    return item.basename;
+  }
+  async onChooseItem(prompt_template) {
+    await this.plugin.build_prompt(prompt_template);
   }
   
   async awaitDataViewPage(filePath) {
@@ -306,6 +349,14 @@ class SmartPromptsSettingsTab extends Obsidian.PluginSettingTab {
     new Obsidian.Setting(this.containerEl).setName("Initial Prompt").setDesc("The initial prompt to enter when opening the ChatGPT window.").addTextArea((cb) => {
       cb.setPlaceholder("initial prompt").setValue(this.plugin.settings.initial_prompt).onChange(async (new_prompt) => {
         this.plugin.settings.initial_prompt = new_prompt;
+        await this.plugin.save_settings();
+      });
+    });
+
+    // file_focus_prompt
+    new Obsidian.Setting(this.containerEl).setName("File Focus Prompt (file name in templates folder)").setDesc("The prompt to enter when a file is focused for 10 seconds or more.").addText((cb) => {
+      cb.setPlaceholder("file focus prompt").setValue(this.plugin.settings.file_focus_prompt).onChange(async (new_prompt) => {
+        this.plugin.settings.file_focus_prompt = new_prompt;
         await this.plugin.save_settings();
       });
     });
