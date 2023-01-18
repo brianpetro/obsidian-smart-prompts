@@ -274,13 +274,15 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       // focus the editor
       this.app.workspace.getActiveViewOfType(Obsidian.MarkdownView).editor.focus();
     }
+    
+    // save the current clipboard
+    let clipboard = await navigator.clipboard.readText();
     // copy to the clipboard
     await navigator.clipboard.writeText(smart_prompt);
     if(temp_view) {
       // close the temp view
       temp_view.close();
     }
-    
     // clear the selection
     this.selection = null;
 
@@ -295,6 +297,10 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       // this.app.workspace.setActiveLeaf(smartChatGPTView);
       console.log("sending prompt to SmartChatGPTView");
       await smartChatGPTView.view.paste_prompt();
+      // restore the clipboard
+      await navigator.clipboard.writeText(clipboard);
+    }else{
+      new Obsidian.Notice("Smart Prompt: Copied to clipboard");
     }
   }
 
