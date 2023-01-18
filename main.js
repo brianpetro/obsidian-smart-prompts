@@ -132,6 +132,11 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
     this.registerView(SMART_CHATGPT_VIEW_TYPE, (leaf) => (new SmartChatGPTView(leaf, this)));
     // register file-open event to automatically run if the file is open and focused for more than 10 seconds
     this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      // if no file is open, do nothing
+      if(!file) {
+        this.clear_focus();
+        return;
+      }
       if(!this.settings.auto_prompt_on_file_focus) {
         return;
       }
