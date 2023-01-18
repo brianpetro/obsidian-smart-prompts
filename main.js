@@ -135,6 +135,11 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
       if(!this.settings.auto_prompt_on_file_focus) {
         return;
       }
+      // skip if SMART_CHATGPT_VIEW_TYPE is not open
+      if(this.app.workspace.getLeavesOfType(SMART_CHATGPT_VIEW_TYPE).length == 0) {
+        console.log("Smart Prompts: File Focus Prompt skipped because Smart ChatGPT is not open.");
+        return;
+      }
       // if settings.file_focus_prompt is not set, do nothing
       if(!this.file_focus_prompt_template){
         if(this.settings.file_focus_prompt != "") {
