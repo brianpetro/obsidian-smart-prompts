@@ -168,9 +168,13 @@ class SmartPromptsPlugin extends Obsidian.Plugin {
         this.countdown_interval = setInterval(this.focusCountdown.bind(this, file), 1000);
       }
     }));
+
     new Obsidian.Notice("Smart Prompts initialized.");
   }
 
+  onunload() {
+    console.log("unloading smart prompts");
+  }
 
   
   clear_focus() {
@@ -470,7 +474,19 @@ class SmartChatGPTView extends Obsidian.ItemView {
   }
   onload() {
     console.log("loading view");
+    this.initialize();
+  }
+  
+  initialize() {
     this.containerEl.empty();
+    // insert button to refresh
+    const refreshButton = this.containerEl.createEl("button", {
+      text: "Refresh",
+    });
+    refreshButton.addEventListener("click", () => {
+      this.initialize();
+    });
+    // insert ChatGPT
     this.containerEl.appendChild(this.create());
   }
 
@@ -486,7 +502,8 @@ class SmartChatGPTView extends Obsidian.ItemView {
           await this.frame.executeJavaScript(`document.querySelector("textarea").focus()`);
           await this.frame.executeJavaScript(`document.querySelector("textarea").value = "${this.plugin.settings.initial_prompt}"`);
           // enter
-          await this.frame.executeJavaScript(`document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}))`);
+          // TODO: UPDATE auto-submit to use click
+          // await this.frame.executeJavaScript(`document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}))`);
   
         });
         this.frame.findInPage("textarea");
